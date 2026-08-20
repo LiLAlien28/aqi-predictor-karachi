@@ -352,10 +352,9 @@ Authentication & role-based access
 ## 👩‍💻 Author
 
 Muhammad Aamir
+
 10 Pearls Shine Intern
 
-⭐ If You Like This Project
 
-Please ⭐ star the repository and share it.
 
 
