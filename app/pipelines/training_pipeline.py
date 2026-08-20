@@ -37,7 +37,8 @@ def train_horizon(df: pd.DataFrame, horizon: int):
 
     preds = model.predict(X)
 
-    rmse = mean_squared_error(y, preds, squared=False)
+    # Fixed: Calculate RMSE manually
+    rmse = mean_squared_error(y, preds) ** 0.5
     mae = mean_absolute_error(y, preds)
     r2 = r2_score(y, preds)
 
@@ -120,3 +121,22 @@ def run_training(horizon: int):
     print("🎯 Training completed successfully")
 
     return result
+
+
+# ---------------------------------------------------
+# RUN ALL HORIZONS
+# ---------------------------------------------------
+if __name__ == "__main__":
+    print("🚀 Starting training pipeline...")
+    
+    for h in [1, 2, 3]:
+        print(f"\n{'='*50}")
+        print(f"Training Horizon {h}")
+        print('='*50)
+        try:
+            result = run_training(h)
+            print(f"✅ Horizon {h} complete: RMSE={result['rmse']:.2f}, R²={result['r2']:.3f}")
+        except Exception as e:
+            print(f"❌ Horizon {h} failed: {e}")
+    
+    print("\n🎯 Training pipeline complete!")

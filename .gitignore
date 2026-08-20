@@ -42,3 +42,4 @@ eda_training_dataset.csv
 
 # Virtual environment
 venv/
+.env

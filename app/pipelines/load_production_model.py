@@ -1,39 +1,20 @@
 import joblib
-from pathlib import Path
+import io
 from functools import lru_cache
+from gridfs import GridFS
 
-from app.db.mongo import get_model_registry
-
-
-# ==================================================
-# Resolve model file safely on Railway / Local
-# ==================================================
-def _resolve_model_path(path_str: str) -> Path:
-    path = Path(path_str)
-
-    # Absolute path
-    if path.is_absolute() and path.exists():
-        return path
-
-    # Try cwd
-    cwd_path = Path.cwd() / path
-    if cwd_path.exists():
-        return cwd_path
-
-    # Try app directory
-    app_path = Path(__file__).resolve().parents[2] / path
-    if app_path.exists():
-        return app_path
-
-    raise RuntimeError(f"Model file not found: {path_str}")
+from app.db.mongo import get_model_registry, get_database
 
 
 # ==================================================
-# Cached loader
+# Load model from GridFS
 # ==================================================
 @lru_cache(maxsize=10)
 def load_production_model(horizon: int):
-
+    """
+    Load production model for a given horizon from GridFS
+    """
+    
     registry = get_model_registry()
 
     model_doc = registry.find_one({
@@ -47,15 +28,24 @@ def load_production_model(horizon: int):
             f"No production model found for horizon={horizon}"
         )
 
-    model_path_str = model_doc.get("model_path")
+    # Get GridFS ID
+    gridfs_id = model_doc.get("gridfs_id")
+    
+    if not gridfs_id:
+        raise RuntimeError("Model registry missing gridfs_id")
 
-    if not model_path_str:
-        raise RuntimeError("Model registry missing model_path")
+    # Load from GridFS
+    db = get_database()
+    fs = GridFS(db)
+    
+    try:
+        gridfs_file = fs.get(gridfs_id)
+        model_bytes = gridfs_file.read()
+        model = joblib.load(io.BytesIO(model_bytes))
+    except Exception as e:
+        raise RuntimeError(f"Failed to load model from GridFS: {e}")
 
-    model_path = _resolve_model_path(model_path_str)
-
-    model = joblib.load(model_path)
-
+    # Get features
     features = model_doc.get("features")
     if not features:
         raise RuntimeError("Model registry missing features")
@@ -65,5 +55,4 @@ def load_production_model(horizon: int):
         f"{model_doc.get('model_name','model')}_h{horizon}"
     )
 
-    return model, features, model_version
-    print("Loading model from:", model_doc["model_path"])
+    return model

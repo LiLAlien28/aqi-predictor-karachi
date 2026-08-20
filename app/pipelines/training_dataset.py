@@ -11,7 +11,7 @@ from app.pipelines.feature_engineering_rolling import add_rolling_features
 # -------------------------------------------------------
 def load_historical_df():
 
-    collection = get_db()["historical_hourly_data"]
+    collection = get_database()["historical_hourly_data"]
     data = list(collection.find({}, {"_id": 0}))
 
     if not data:
