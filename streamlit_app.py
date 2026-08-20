@@ -230,7 +230,7 @@ st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
 # BACKEND URLS
 # ==========================================================
 
-BASE_URL = "https://web-production-382ce.up.railway.app"
+BASE_URL = "https://aqi-predictor-karachi-production.up.railway.app"
 
 FORECAST_URL = f"{BASE_URL}/forecast"
 BEST_MODEL_URL = f"{BASE_URL}/models/best"
