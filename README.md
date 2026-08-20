@@ -5,7 +5,7 @@
 [![Live Dashboard](https://img.shields.io/badge/Live-Streamlit%20Dashboard-FF4B4B?style=for-the-badge&logo=streamlit)](https://aamir-aqi-predictor.streamlit.app/)
 [![Production API](https://img.shields.io/badge/API-Railway-0B0D0E?style=for-the-badge&logo=railway)](https://aqi-predictor-karachi-production.up.railway.app)
 [![GitHub](https://img.shields.io/badge/GitHub-LiLAlien28-181717?style=for-the-badge&logo=github)](https://github.com/LiLAlien28)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Muhammad%20Aamir-0077B5?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/muhammad-aamir)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Muhammad%20Aamir-0077B5?style=for-the-badge&logo=linkedin)]([https://www.linkedin.com/in/muhammad-aamir](https://www.linkedin.com/in/moaamir28/))
 
 ---
 
