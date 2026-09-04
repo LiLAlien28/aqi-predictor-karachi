@@ -4,13 +4,8 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import requests
-import shap
 import json
-import base64
 from datetime import datetime, timedelta
-from PIL import Image
-import io
-import joblib
 
 # ============================================================
 # PAGE CONFIG
@@ -348,19 +343,19 @@ with st.sidebar:
             </div>
         """, unsafe_allow_html=True)
     
-    # ===== SHAP INSIGHTS =====
-    with st.expander("🔬 SHAP Explainability", expanded=False):
+    # ===== FEATURE IMPORTANCE INSIGHTS =====
+    with st.expander("📊 Feature Importance Insights", expanded=False):
         st.markdown("""
-            <div style="font-size: 13px; color: #94a3b8; line-height: 1.9;">
-                <b style="color: #e2e8f0;">What is SHAP?</b><br>
-                SHAP values show how each feature contributes to the prediction.<br><br>
-                <b style="color: #e2e8f0;">🔑 Key Insights</b><br>
-                • <span style="color: #00c3ff;">pm2_5</span> is the strongest predictor<br>
-                • <span style="color: #7c3aed;">Day</span> captures weekly patterns<br>
-                • <span style="color: #7c3aed;">Nitrogen dioxide</span> indicates traffic impact<br>
-                • <span style="color: #7c3aed;">Rolling means</span> smooth short-term noise<br><br>
+            <div style="font-size: 13px; color: #94a3b8; line-height: 2;">
+                <b style="color: #e2e8f0;">🔑 Top Predictors</b><br>
+                • <span style="color: #00c3ff;">pm2_5</span> — Strongest predictor<br>
+                • <span style="color: #7c3aed;">aqi_pm25</span> — Target variable<br>
+                • <span style="color: #7c3aed;">day</span> — Weekly patterns<br>
+                • <span style="color: #7c3aed;">roll_mean_12</span> — Smoothing effect<br>
+                • <span style="color: #7c3aed;">nitrogen_dioxide</span> — Traffic indicator<br><br>
                 <b style="color: #e2e8f0;">💡 How It Works</b><br>
-                Each feature gets a SHAP value showing its impact on the predicted AQI.
+                Feature importance shows which variables 
+                have the strongest influence on predicted AQI.
             </div>
         """, unsafe_allow_html=True)
     
@@ -407,7 +402,6 @@ def fetch_data(endpoint):
 def fetch_current_aqi():
     """Fetch current AQI from AQICN API"""
     try:
-        # Using the same API as the backend
         response = requests.get(
             "https://api.waqi.info/feed/geo:24.8608;67.0104/?token=593d56f2c0edba0cb9ccd27eac295534c4206b65",
             timeout=30
@@ -502,14 +496,14 @@ def create_feature_importance_chart(features_data):
         text=df["importance"].round(3),
         textposition='outside',
         textfont=dict(color='#e2e8f0', size=11),
-        hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
+        hovertemplate='<b>%{y}</b><br>Importance: %{x:.4f}<extra></extra>'
     ))
 
     fig.update_layout(
         height=400,
         template='plotly_dark',
         xaxis=dict(
-            title="SHAP Importance Score",
+            title="Feature Importance Score",
             titlefont=dict(color='#94a3b8'),
             tickfont=dict(color='#94a3b8'),
             gridcolor='rgba(255,255,255,0.03)'
@@ -728,335 +722,4 @@ if forecast_data:
         marker=dict(size=14, color='#00c3ff', symbol='circle', line=dict(width=2, color='#ffffff')),
         name='AQI Forecast',
         fill='tozeroy',
-        fillcolor='rgba(0, 195, 255, 0.06)',
-        hovertemplate='<b>%{x}</b><br>AQI: %{y:.1f}<extra></extra>'
-    ))
-    
-    # Confidence interval
-    fig.add_trace(go.Scatter(
-        x=dates + dates[::-1],
-        y=[v + 5 for v in values] + [v - 5 for v in values[::-1]],
-        fill='toself',
-        fillcolor='rgba(0, 195, 255, 0.05)',
-        line=dict(color='rgba(0, 195, 255, 0)'),
-        name='Confidence Interval (±5)',
-        showlegend=True,
-        hoverinfo='skip'
-    ))
-    
-    # AQI category lines
-    fig.add_hline(y=50, line_dash="dash", line_color="#00ff88", opacity=0.4, annotation_text="Good")
-    fig.add_hline(y=100, line_dash="dash", line_color="#ffee00", opacity=0.4, annotation_text="Moderate")
-    fig.add_hline(y=150, line_dash="dash", line_color="#ff9900", opacity=0.4, annotation_text="Unhealthy")
-    
-    fig.update_layout(
-        height=350,
-        template='plotly_dark',
-        xaxis=dict(
-            title="Date",
-            titlefont=dict(color='#94a3b8'),
-            tickfont=dict(color='#94a3b8'),
-            gridcolor='rgba(255,255,255,0.03)'
-        ),
-        yaxis=dict(
-            title="AQI Value",
-            titlefont=dict(color='#94a3b8'),
-            tickfont=dict(color='#94a3b8'),
-            gridcolor='rgba(255,255,255,0.03)',
-            range=[0, max(values) + 60]
-        ),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        hovermode='x unified',
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.02,
-            xanchor='right',
-            x=1,
-            font=dict(color='#94a3b8', size=11)
-        )
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    
-    # ============================================================
-    # HEALTH ADVISORY
-    # ============================================================
-    
-    st.markdown("## 🚨 Health Advisory")
-    
-    max_aqi = max(values)
-    category, _, color = aqi_category(max_aqi)
-    
-    col1, col2 = st.columns([1, 2.5])
-    
-    with col1:
-        st.markdown(f"""
-            <div style="text-align: center; background: rgba(255,255,255,0.02); border-radius: 16px; padding: 24px; border: 1px solid rgba(255,255,255,0.04);">
-                <div style="font-size: 56px; font-weight: 800; color: {color};">{max_aqi:.0f}</div>
-                <div style="font-size: 14px; color: #94a3b8;">Peak AQI</div>
-                <div style="margin-top: 8px;">
-                    <span class="badge badge-{category.lower().replace(' ', '-')}">{category}</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        if max_aqi > 200:
-            st.error("""
-                <div style="font-size: 16px; font-weight: 600;">⚠️ Hazardous Air Quality</div>
-                <div style="font-size: 14px; color: #94a3b8; margin-top: 8px;">
-                    🛑 Avoid all outdoor exposure<br>
-                    🏠 Stay indoors with air purifiers<br>
-                    😷 Wear N95 masks if necessary<br>
-                    📱 Monitor symptoms and seek medical attention if needed
-                </div>
-            """, unsafe_allow_html=True)
-        elif max_aqi > 150:
-            st.warning("""
-                <div style="font-size: 16px; font-weight: 600;">🟠 Unhealthy Air Quality</div>
-                <div style="font-size: 14px; color: #94a3b8; margin-top: 8px;">
-                    🚶 Limit outdoor physical activity<br>
-                    👵 Sensitive groups (elderly, children) should stay indoors<br>
-                    🔒 Keep windows closed<br>
-                    💨 Use air purifiers if available
-                </div>
-            """, unsafe_allow_html=True)
-        elif max_aqi > 100:
-            st.info("""
-                <div style="font-size: 16px; font-weight: 600;">🟡 Moderate Air Quality</div>
-                <div style="font-size: 14px; color: #94a3b8; margin-top: 8px;">
-                    👃 Unusually sensitive people should limit prolonged outdoor exposure<br>
-                    🌿 General public is safe<br>
-                    🏃‍♂️ Consider indoor exercise if you have respiratory conditions
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.success("""
-                <div style="font-size: 16px; font-weight: 600;">🟢 Good Air Quality</div>
-                <div style="font-size: 14px; color: #94a3b8; margin-top: 8px;">
-                    🌿 Air quality is satisfactory<br>
-                    🏃 Enjoy outdoor activities!<br>
-                    🪟 Open windows for fresh air<br>
-                    ⭐ Perfect conditions for outdoor exercise
-                </div>
-            """, unsafe_allow_html=True)
-    
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    
-    # ============================================================
-    # MODEL PERFORMANCE & FEATURE IMPORTANCE
-    # ============================================================
-    
-    col1, col2 = st.columns([1, 1.2])
-    
-    with col1:
-        st.markdown("## 🏆 Model Performance")
-        
-        if best_model_data and "model" in best_model_data:
-            model = best_model_data["model"]
-            st.markdown(f"""
-                <div class="glass-card">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                        <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 14px; text-align: center;">
-                            <div style="font-size: 11px; color: #94a3b8;">Model</div>
-                            <div style="font-size: 15px; font-weight: 600; color: #60a5fa;">{model.get('model_name', 'Random Forest')}</div>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 14px; text-align: center;">
-                            <div style="font-size: 11px; color: #94a3b8;">Horizon</div>
-                            <div style="font-size: 15px; font-weight: 600; color: #e2e8f0;">{model.get('horizon', 1)} (24h)</div>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 14px; text-align: center;">
-                            <div style="font-size: 11px; color: #94a3b8;">RMSE</div>
-                            <div style="font-size: 18px; font-weight: 700; color: #00c3ff;">{model.get('rmse', 5.97):.2f}</div>
-                        </div>
-                        <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 14px; text-align: center;">
-                            <div style="font-size: 11px; color: #94a3b8;">R² Score</div>
-                            <div style="font-size: 18px; font-weight: 700; color: #7c3aed;">{model.get('r2', 0.843):.3f}</div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 12px; text-align: center; font-size: 13px; color: #94a3b8;">
-                        Status: <span style="color: #00ff88; font-weight: 600;">● Production Ready</span>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("## 📊 Feature Importance")
-        
-        if feature_importance_data and "features" in feature_importance_data:
-            df = pd.DataFrame(feature_importance_data["features"])
-            df = df.sort_values("importance", ascending=False).head(8)
-            
-            fig = go.Figure()
-            
-            fig.add_trace(go.Bar(
-                x=df["importance"],
-                y=df["feature"],
-                orientation='h',
-                marker=dict(
-                    color=df["importance"],
-                    colorscale=[[0, '#94a3b8'], [0.5, '#60a5fa'], [1, '#7c3aed']],
-                    showscale=False,
-                    line=dict(width=0)
-                ),
-                text=df["importance"].round(3),
-                textposition='outside',
-                textfont=dict(color='#e2e8f0', size=10),
-                hovertemplate='<b>%{y}</b><br>SHAP Value: %{x:.4f}<extra></extra>'
-            ))
-            
-            fig.update_layout(
-                height=350,
-                template='plotly_dark',
-                xaxis=dict(
-                    title="SHAP Importance",
-                    titlefont=dict(color='#94a3b8'),
-                    tickfont=dict(color='#94a3b8'),
-                    gridcolor='rgba(255,255,255,0.03)',
-                    showticklabels=True
-                ),
-                yaxis=dict(
-                    title="",
-                    tickfont=dict(color='#e2e8f0', size=12),
-                    gridcolor='rgba(255,255,255,0.03)',
-                    autorange='reversed'
-                ),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=10, r=60, t=10, b=10),
-                hovermode='y'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("⚠️ Feature importance data unavailable.")
-    
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    
-    # ============================================================
-    # SHAP EXPLAINABILITY - DETAILED
-    # ============================================================
-    
-    st.markdown("## 🔬 SHAP Explainability - Feature Impact Analysis")
-    
-    st.markdown("""
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin: 10px 0;">
-            <div style="background: rgba(255,255,255,0.02); border-radius: 14px; padding: 16px; border: 1px solid rgba(255,255,255,0.04);">
-                <div style="font-size: 13px; color: #94a3b8;">🔹 Strongest Positive Impact</div>
-                <div style="margin-top: 8px;">
-                    <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                        <span style="color: #e2e8f0;">pm2_5</span>
-                        <span style="color: #00c3ff;">+0.19 SHAP</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                        <span style="color: #e2e8f0;">aqi_pm25</span>
-                        <span style="color: #00c3ff;">+0.17 SHAP</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                        <span style="color: #e2e8f0;">day</span>
-                        <span style="color: #7c3aed;">+0.12 SHAP</span>
-                    </div>
-                </div>
-            </div>
-            <div style="background: rgba(255,255,255,0.02); border-radius: 14px; padding: 16px; border: 1px solid rgba(255,255,255,0.04);">
-                <div style="font-size: 13px; color: #94a3b8;">🔸 Understanding SHAP</div>
-                <div style="margin-top: 8px; font-size: 13px; color: #94a3b8; line-height: 1.6;">
-                    SHAP (SHapley Additive exPlanations) values measure how each feature contributes to the predicted AQI.
-                    <br><br>
-                    <span style="color: #00c3ff;">🔵 Positive values</span> increase AQI<br>
-                    <span style="color: #7c3aed;">🟣 Higher magnitude</span> = more impact
-                </div>
-            </div>
-            <div style="background: rgba(255,255,255,0.02); border-radius: 14px; padding: 16px; border: 1px solid rgba(255,255,255,0.04);">
-                <div style="font-size: 13px; color: #94a3b8;">🔹 Key Insights</div>
-                <div style="margin-top: 8px; font-size: 13px; color: #94a3b8; line-height: 1.8;">
-                    • <span style="color: #00c3ff;">pm2_5</span> is the dominant predictor<br>
-                    • <span style="color: #7c3aed;">Day</span> captures weekly patterns<br>
-                    • <span style="color: #7c3aed;">Nitrogen dioxide</span> reflects traffic<br>
-                    • <span style="color: #7c3aed;">Rolling means</span> smooth noise<br>
-                    • <span style="color: #7c3aed;">Month</span> captures seasonal trends
-                </div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-    
-    # ============================================================
-    # SYSTEM INFO & STATUS
-    # ============================================================
-    
-    st.markdown("## ⚙️ System Status")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("""
-            <div class="glass-card" style="padding: 16px;">
-                <div style="font-size: 12px; color: #94a3b8;">Backend API</div>
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                    <span style="color: #00ff88;">●</span>
-                    <span style="color: #e2e8f0;">Online</span>
-                    <span style="margin-left: auto; font-size: 11px; color: #475569;">Railway</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-            <div class="glass-card" style="padding: 16px;">
-                <div style="font-size: 12px; color: #94a3b8;">MongoDB</div>
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                    <span style="color: #00ff88;">●</span>
-                    <span style="color: #e2e8f0;">Connected</span>
-                    <span style="margin-left: auto; font-size: 11px; color: #475569;">Atlas</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
-            <div class="glass-card" style="padding: 16px;">
-                <div style="font-size: 12px; color: #94a3b8;">Model Registry</div>
-                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                    <span style="color: #00ff88;">●</span>
-                    <span style="color: #e2e8f0;">Active</span>
-                    <span style="margin-left: auto; font-size: 11px; color: #475569;">GridFS</span>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-
-else:
-    st.error("""
-        <div style="text-align: center; padding: 40px 20px;">
-            <div style="font-size: 48px; margin-bottom: 16px;">🔌</div>
-            <h3>Backend Connection Error</h3>
-            <p style="color: #94a3b8;">Unable to connect to the prediction engine. Please check your connection or try again later.</p>
-            <p style="color: #475569; font-size: 13px;">Make sure the backend is running at: <code>https://aqi-predictor-karachi-production.up.railway.app</code></p>
-        </div>
-    """, unsafe_allow_html=True)
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.markdown("""
-    <div class="footer">
-        <p style="font-size: 15px;">
-            🌍 <strong>Karachi AQI Forecast System</strong> 
-        </p>
-        <p>
-            Built with ❤️ by <strong style="color: #60a5fa;">Muhammad Aamir</strong> • 10 Pearls Shine Intern • Cohort 9
-        </p>
-        <p style="font-size: 12px; color: #475569;">
-            🚀 Production-Grade MLOps Pipeline • FastAPI + Streamlit • SHAP Explainability
-        </p>
-        <p style="font-size: 11px; color: #334155; margin-top: 8px;">
-            © 2026 • All Rights Reserved
-        </p>
-    </div>
-""", unsafe_allow_html=True)
+        fillcolor='rgba(
