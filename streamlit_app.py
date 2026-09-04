@@ -63,12 +63,6 @@ st.markdown("""
         letter-spacing: -0.02em;
     }
     
-    .subtitle {
-        color: #94a3b8;
-        font-size: 16px;
-        letter-spacing: 0.3px;
-    }
-    
     /* ========== METRIC BOXES ========== */
     .metric-box {
         background: rgba(255, 255, 255, 0.02);
@@ -117,34 +111,12 @@ st.markdown("""
     .badge-unhealthy { background: rgba(255, 153, 0, 0.12); color: #ff9900; border: 1px solid rgba(255, 153, 0, 0.15); }
     .badge-hazardous { background: rgba(255, 51, 51, 0.12); color: #ff3333; border: 1px solid rgba(255, 51, 51, 0.15); }
     
-    /* ========== CURRENT AQI DISPLAY ========== */
-    .aqi-display {
-        text-align: center;
-        padding: 20px;
-        border-radius: 20px;
-        background: rgba(255,255,255,0.02);
-        border: 1px solid rgba(255,255,255,0.04);
-    }
-    .aqi-number {
-        font-size: 72px;
-        font-weight: 800;
-        line-height: 1;
-    }
-    
     /* ========== DIVIDER ========== */
     .divider {
         border: none;
         height: 1px;
         background: linear-gradient(to right, transparent, rgba(255,255,255,0.06), transparent);
         margin: 32px 0;
-    }
-    
-    /* ========== PROGRESS BAR ========== */
-    .feature-bar {
-        height: 6px;
-        border-radius: 4px;
-        background: linear-gradient(90deg, #00c3ff, #7c3aed);
-        transition: width 1s ease;
     }
     
     /* ========== FOOTER ========== */
@@ -395,7 +367,6 @@ def fetch_data(endpoint):
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        st.warning(f"⚠️ Backend connection issue: {e}")
         return None
 
 @st.cache_data(ttl=300)
@@ -553,15 +524,24 @@ if forecast_data:
     with col1:
         if current_aqi_data:
             current_aqi = current_aqi_data.get("aqi", "N/A")
-            category, _, color = aqi_category(current_aqi)
-            st.markdown(f"""
-                <div class="glass-card" style="text-align: center;">
-                    <div style="font-size: 14px; color: #94a3b8;">Live AQI</div>
-                    <div style="font-size: 56px; font-weight: 800; color: {color}; line-height: 1.2;">{current_aqi}</div>
-                    <div><span class="badge badge-{category.lower().replace(' ', '-')}">{category}</span></div>
-                    <div style="font-size: 12px; color: #475569; margin-top: 8px;">Updated: {datetime.now().strftime('%H:%M')}</div>
-                </div>
-            """, unsafe_allow_html=True)
+            if isinstance(current_aqi, (int, float)):
+                category, _, color = aqi_category(current_aqi)
+                st.markdown(f"""
+                    <div class="glass-card" style="text-align: center;">
+                        <div style="font-size: 14px; color: #94a3b8;">Live AQI</div>
+                        <div style="font-size: 56px; font-weight: 800; color: {color}; line-height: 1.2;">{current_aqi}</div>
+                        <div><span class="badge badge-{category.lower().replace(' ', '-')}">{category}</span></div>
+                        <div style="font-size: 12px; color: #475569; margin-top: 8px;">Updated: {datetime.now().strftime('%H:%M')}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                    <div class="glass-card" style="text-align: center;">
+                        <div style="font-size: 14px; color: #94a3b8;">Live AQI</div>
+                        <div style="font-size: 32px; font-weight: 600; color: #64748b;">N/A</div>
+                        <div style="font-size: 12px; color: #475569; margin-top: 8px;">Data unavailable</div>
+                    </div>
+                """, unsafe_allow_html=True)
         else:
             st.markdown("""
                 <div class="glass-card" style="text-align: center;">
@@ -601,7 +581,7 @@ if forecast_data:
         """, unsafe_allow_html=True)
     
     with col3:
-        st.markdown("""
+        st.markdown(f"""
             <div class="glass-card" style="text-align: center;">
                 <div style="font-size: 14px; color: #94a3b8;">Data Sources</div>
                 <div style="font-size: 13px; color: #64748b; margin-top: 8px; text-align: left;">
@@ -722,4 +702,12 @@ if forecast_data:
         marker=dict(size=14, color='#00c3ff', symbol='circle', line=dict(width=2, color='#ffffff')),
         name='AQI Forecast',
         fill='tozeroy',
-        fillcolor='rgba(
+        fillcolor='rgba(0, 195, 255, 0.06)',
+        hovertemplate='<b>%{x}</b><br>AQI: %{y:.1f}<extra></extra>'
+    ))
+    
+    # Confidence interval
+    ci_upper = [v + 5 for v in values]
+    ci_lower = [v - 5 for v in values]
+    fig.add_trace(go.Scatter(
+       
