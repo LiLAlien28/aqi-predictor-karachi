@@ -109,10 +109,6 @@ st.markdown("""
         color: #60a5fa;
         text-decoration: none;
     }
-    .footer a:hover {
-        color: #93bbfc;
-        text-decoration: underline;
-    }
     .stButton > button {
         border-radius: 12px;
         font-weight: 600;
@@ -194,16 +190,16 @@ with st.sidebar:
     
     st.markdown("### 📊 Model Performance")
     performance_data = {
-        "H1 (24h)": {"RMSE": 5.97, "R²": 0.843, "MAE": 4.59},
-        "H2 (48h)": {"RMSE": 5.56, "R²": 0.862, "MAE": 4.15},
-        "H3 (72h)": {"RMSE": 5.70, "R²": 0.855, "MAE": 4.34}
+        "H1 (24h)": {"RMSE": 5.97, "R2": 0.843, "MAE": 4.59},
+        "H2 (48h)": {"RMSE": 5.56, "R2": 0.862, "MAE": 4.15},
+        "H3 (72h)": {"RMSE": 5.70, "R2": 0.855, "MAE": 4.34}
     }
     for horizon, metrics in performance_data.items():
         st.markdown(f"""
             <div style="background: rgba(255,255,255,0.02); border-radius: 10px; padding: 10px 14px; margin: 4px 0;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="color: #94a3b8; font-size: 13px;">{horizon}</span>
-                    <span style="color: #e2e8f0; font-size: 13px; font-weight: 500;">R² <span class="gradient-text">{metrics['R²']:.3f}</span></span>
+                    <span style="color: #e2e8f0; font-size: 13px; font-weight: 500;">R² <span class="gradient-text">{metrics['R2']:.3f}</span></span>
                 </div>
                 <div style="display: flex; justify-content: space-between; font-size: 11px; color: #475569; margin-top: 2px;">
                     <span>RMSE: {metrics['RMSE']:.2f}</span>
@@ -239,9 +235,7 @@ with st.sidebar:
                 • <span style="color: #7c3aed;">aqi_pm25</span> — Target variable<br>
                 • <span style="color: #7c3aed;">day</span> — Weekly patterns<br>
                 • <span style="color: #7c3aed;">roll_mean_12</span> — Smoothing effect<br>
-                • <span style="color: #7c3aed;">nitrogen_dioxide</span> — Traffic indicator<br><br>
-                <b style="color: #e2e8f0;">💡 How It Works</b><br>
-                Feature importance shows which variables have the strongest influence on predicted AQI.
+                • <span style="color: #7c3aed;">nitrogen_dioxide</span> — Traffic indicator
             </div>
         """, unsafe_allow_html=True)
     
@@ -326,7 +320,7 @@ def create_gauge(value, date_label, horizon):
     
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=value,
+        value=float(value),
         title={
             'text': f"{date_label}<br><span class='{badge_class}'>{category}</span>",
             'font': {'size': 14, 'color': '#e2e8f0'}
@@ -347,7 +341,7 @@ def create_gauge(value, date_label, horizon):
             'threshold': {
                 'line': {'color': '#ffffff', 'width': 2},
                 'thickness': 0.5,
-                'value': value
+                'value': float(value)
             }
         }
     ))
@@ -602,6 +596,10 @@ if forecast_data:
         hovertemplate='<b>%{x}</b><br>AQI: %{y:.1f}<extra></extra>'
     ))
     
+    fig.add_hline(y=50, line_dash="dash", line_color="#00ff88", opacity=0.4)
+    fig.add_hline(y=100, line_dash="dash", line_color="#ffee00", opacity=0.4)
+    fig.add_hline(y=150, line_dash="dash", line_color="#ff9900", opacity=0.4)
+    
     fig.update_layout(
         height=350,
         template='plotly_dark',
@@ -741,7 +739,7 @@ if forecast_data:
     
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
     
-    # ===== SHAP EXPLAINABILITY =====
+    # ===== FEATURE IMPACT ANALYSIS =====
     st.markdown("## 🔬 Feature Impact Analysis")
     
     st.markdown("""
@@ -833,7 +831,6 @@ else:
             <div style="font-size: 48px; margin-bottom: 16px;">🔌</div>
             <h3>Backend Connection Error</h3>
             <p style="color: #94a3b8;">Unable to connect to the prediction engine. Please check your connection or try again later.</p>
-            <p style="color: #475569; font-size: 13px;">Make sure the backend is running at: <code>https://aqi-predictor-karachi-production.up.railway.app</code></p>
         </div>
     """, unsafe_allow_html=True)
 
