@@ -1,210 +1,304 @@
+"""
+Karachi AQI Forecast — Production Dashboard
+Author: Muhammad Aamir | 10 Pearls Shine Internship, Cohort 9
+
+A multi-horizon Air Quality Index forecasting dashboard with model
+transparency (metrics, feature importance, SHAP explainability) built
+on top of a FastAPI + MongoDB inference backend.
+"""
+
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
-import plotly.express as px
 import requests
-from datetime import datetime, timedelta
-import json
+from datetime import datetime
 
 # ==========================================================
 # PAGE CONFIG
 # ==========================================================
 
 st.set_page_config(
-    page_title="Karachi AQI Forecast - Muhammad Aamir",
+    page_title="Karachi AQI Forecast | Muhammad Aamir",
     page_icon="🌍",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # ==========================================================
-# CUSTOM CSS - MODERN DARK UI
+# CONSTANTS
+# ==========================================================
+
+BASE_URL = "https://aqi-predictor-karachi-production.up.railway.app"
+FORECAST_URL = f"{BASE_URL}/forecast"
+BEST_MODEL_URL = f"{BASE_URL}/models/best"
+METRICS_URL = f"{BASE_URL}/models/metrics"
+FEATURE_URL = f"{BASE_URL}/features/importance?horizon=1"
+SHAP_URL = f"{BASE_URL}/forecast/shap"
+
+AQI_BANDS = [
+    (0, 50, "Good", "#00e396", "Air quality is satisfactory; minimal risk."),
+    (51, 100, "Moderate", "#ffd54f", "Acceptable, but sensitive individuals should watch prolonged exposure."),
+    (101, 150, "Unhealthy (Sensitive Groups)", "#ff9f43", "Sensitive groups may experience health effects."),
+    (151, 200, "Unhealthy", "#ff6b6b", "Everyone may begin to experience health effects."),
+    (201, 300, "Very Unhealthy", "#c44dff", "Health alert — everyone may experience more serious effects."),
+    (301, 500, "Hazardous", "#8b0000", "Health warning of emergency conditions."),
+]
+
+# ==========================================================
+# THEME / CSS
 # ==========================================================
 
 st.markdown("""
     <style>
-        /* Main background */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+
         .stApp {
-            background: linear-gradient(135deg, #0e1117 0%, #1a1f2e 100%);
-            color: #ffffff;
+            background: radial-gradient(circle at top left, #131a2b 0%, #0a0e17 55%, #05070c 100%);
+            color: #e8ecf3;
         }
-        
-        /* Cards */
+
+        section[data-testid="stSidebar"] {
+            background: rgba(10, 14, 23, 0.96);
+            border-right: 1px solid rgba(255,255,255,0.06);
+        }
+
+        h1, h2, h3, h4 { color: #f4f6fb !important; font-weight: 700 !important; letter-spacing: -0.01em; }
+
+        p, span, label, .stMarkdown { color: #c3c9d6; }
+
         .card {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 16px;
-            padding: 24px;
-            margin: 10px 0;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            background: rgba(255,255,255,0.035);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 18px;
+            padding: 22px 24px;
+            margin: 8px 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
         }
-        .card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
-        }
-        
-        /* Headers */
-        h1, h2, h3, h4 {
-            color: #ffffff !important;
-            font-weight: 600 !important;
-        }
-        
-        /* Metric boxes */
-        .metric-box {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 12px;
-            padding: 16px;
-            text-align: center;
-        }
-        .metric-value {
-            font-size: 32px;
-            font-weight: 700;
-            background: linear-gradient(135deg, #00c3ff, #7c3aed);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .metric-label {
-            color: #94a3b8;
-            font-size: 14px;
-            margin-top: 4px;
-        }
-        
-        /* Status badges */
+
         .badge {
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: 600;
+            padding: 5px 14px;
+            border-radius: 999px;
+            font-size: 12.5px;
+            font-weight: 700;
             display: inline-block;
+            letter-spacing: 0.02em;
         }
-        .badge-good { background: rgba(0, 255, 136, 0.2); color: #00ff88; }
-        .badge-moderate { background: rgba(255, 238, 0, 0.2); color: #ffee00; }
-        .badge-unhealthy { background: rgba(255, 153, 0, 0.2); color: #ff9900; }
-        .badge-hazardous { background: rgba(255, 51, 51, 0.2); color: #ff3333; }
-        
-        /* Divider */
-        .custom-divider {
+
+        .metric-box {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 18px;
+            text-align: center;
+            height: 100%;
+        }
+        .metric-value { font-size: 30px; font-weight: 800; color: #6dd3ff; }
+        .metric-label { color: #8b93a7; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+
+        .section-tag {
+            display: inline-block;
+            background: rgba(109, 211, 255, 0.12);
+            color: #6dd3ff;
+            border: 1px solid rgba(109, 211, 255, 0.25);
+            border-radius: 8px;
+            padding: 3px 10px;
+            font-size: 11.5px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+
+        .divider {
             border: none;
             height: 1px;
-            background: linear-gradient(to right, transparent, rgba(255,255,255,0.1), transparent);
-            margin: 30px 0;
+            background: linear-gradient(to right, transparent, rgba(255,255,255,0.12), transparent);
+            margin: 34px 0 26px 0;
         }
-        
-        /* Footer */
+
         .footer {
             text-align: center;
-            color: #64748b;
-            padding: 30px 0 10px 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            margin-top: 30px;
+            color: #5b6478;
+            padding: 30px 0 12px 0;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            margin-top: 34px;
+            font-size: 13px;
         }
-        .footer a {
-            color: #60a5fa;
-            text-decoration: none;
-        }
-        .footer a:hover {
-            color: #93bbfc;
-            text-decoration: underline;
-        }
-        
-        /* Sidebar */
-        .css-1d391kg {
-            background: rgba(14, 17, 23, 0.9);
-            backdrop-filter: blur(10px);
-        }
-        
-        /* Success/Warning/Error boxes */
-        .stAlert {
-            border-radius: 12px;
-            border-left: 4px solid;
-        }
-        
-        /* Buttons */
+        .footer a { color: #6dd3ff; text-decoration: none; font-weight: 600; }
+        .footer a:hover { text-decoration: underline; }
+
         .stButton > button {
-            border-radius: 8px;
+            border-radius: 9px;
             font-weight: 600;
-            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.12);
         }
-        .stButton > button:hover {
-            transform: scale(1.02);
-        }
-        
-        /* Author credit in sidebar */
+
+        .shap-pos { color: #ff6b6b; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .shap-neg { color: #43e6a0; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
         .sidebar-author {
             text-align: center;
-            padding: 15px 0 5px 0;
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            margin-top: 20px;
+            padding: 14px 0 4px 0;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            margin-top: 18px;
         }
-        .sidebar-author .name {
-            color: #60a5fa;
-            font-weight: 600;
-            font-size: 15px;
-        }
-        .sidebar-author .cohort {
-            color: #94a3b8;
-            font-size: 12px;
-        }
+        .sidebar-author .name { color: #6dd3ff; font-weight: 700; font-size: 15px; }
+        .sidebar-author .cohort { color: #8b93a7; font-size: 12px; }
     </style>
 """, unsafe_allow_html=True)
+
+# ==========================================================
+# HELPERS
+# ==========================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_json(url: str, timeout: int = 30):
+    """GET a URL and return parsed JSON, or None on any failure."""
+    try:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        return None
+
+
+def aqi_band(value: float):
+    for lo, hi, label, color, note in AQI_BANDS:
+        if lo <= value <= hi:
+            return label, color, note
+    return "Hazardous", "#8b0000", AQI_BANDS[-1][4]
+
+
+def render_gauge(value, title_html):
+    label, color, _ = aqi_band(value)
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        number={'font': {'size': 40, 'color': color}},
+        title={'text': title_html, 'font': {'size': 15, 'color': '#c3c9d6'}},
+        gauge={
+            'axis': {'range': [0, 300], 'tickcolor': '#5b6478', 'tickfont': {'color': '#8b93a7'}},
+            'bar': {'color': color, 'thickness': 0.28},
+            'bgcolor': 'rgba(255,255,255,0.02)',
+            'borderwidth': 0,
+            'steps': [
+                {'range': [0, 50], 'color': 'rgba(0,227,150,0.12)'},
+                {'range': [50, 100], 'color': 'rgba(255,213,79,0.12)'},
+                {'range': [100, 150], 'color': 'rgba(255,159,67,0.12)'},
+                {'range': [150, 200], 'color': 'rgba(255,107,107,0.12)'},
+                {'range': [200, 300], 'color': 'rgba(196,77,255,0.12)'},
+            ],
+        }
+    ))
+    fig.update_layout(
+        height=290,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font_color="#e8ecf3",
+        margin=dict(l=20, r=20, t=60, b=10),
+    )
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.markdown(
+        f"<div style='text-align:center;margin-top:-10px;'>"
+        f"<span class='badge' style='background:{color}22;color:{color};border:1px solid {color}55;'>{label}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def normalize_shap_response(raw):
+    """
+    Backend SHAP payloads can vary in shape across iterations of the API.
+    This normalizes several plausible shapes into a single DataFrame with
+    columns: feature, shap_value, feature_value (optional).
+    Returns (df, base_value) or (None, None) if it can't be parsed.
+    """
+    if not raw:
+        return None, None
+
+    base_value = raw.get("base_value") or raw.get("expected_value") or raw.get("base") or 0
+
+    candidates = None
+    for key in ("shap_values", "features", "explanation", "contributions"):
+        if key in raw and isinstance(raw[key], list):
+            candidates = raw[key]
+            break
+
+    if candidates is None:
+        return None, None
+
+    rows = []
+    for item in candidates:
+        if isinstance(item, dict):
+            name = item.get("feature") or item.get("name")
+            val = item.get("shap_value") or item.get("value") or item.get("importance")
+            fval = item.get("feature_value") if "feature_value" in item else item.get("input_value")
+            if name is not None and val is not None:
+                rows.append({"feature": name, "shap_value": float(val), "feature_value": fval})
+
+    if not rows:
+        return None, None
+
+    df = pd.DataFrame(rows)
+    return df, base_value
+
 
 # ==========================================================
 # SIDEBAR
 # ==========================================================
 
 with st.sidebar:
-    # Logo/Header
     st.markdown("""
-        <div style="text-align: center; padding: 20px 0;">
-            <div style="font-size: 48px;">🌍</div>
-            <h2 style="margin: 10px 0 5px 0;">Karachi AQI</h2>
-            <p style="color: #94a3b8; font-size: 14px;">Forecast System</p>
+        <div style="text-align:center; padding: 18px 0 8px 0;">
+            <div style="font-size:44px;">🌍</div>
+            <h2 style="margin:8px 0 2px 0;">Karachi AQI</h2>
+            <p style="color:#8b93a7; font-size:13.5px; margin:0;">Multi-Horizon Forecast System</p>
         </div>
     """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # System Status
-    st.markdown("### 📊 System Status")
+
+    st.markdown("<hr class='divider' style='margin:16px 0;'>", unsafe_allow_html=True)
+
+    st.markdown("##### 📊 System Status")
+    status_ping = fetch_json(f"{BASE_URL}/")
+    if status_ping is not None:
+        st.markdown(
+            "<div style='display:flex;align-items:center;gap:8px;'>"
+            "<span style='width:9px;height:9px;border-radius:50%;background:#00e396;display:inline-block;'></span>"
+            "<span style='color:#8b93a7;font-size:13.5px;'>API Operational</span></div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style='display:flex;align-items:center;gap:8px;'>"
+            "<span style='width:9px;height:9px;border-radius:50%;background:#ff6b6b;display:inline-block;'></span>"
+            "<span style='color:#8b93a7;font-size:13.5px;'>API Unreachable</span></div>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<hr class='divider' style='margin:16px 0;'>", unsafe_allow_html=True)
+
+    st.markdown("##### ⚙️ Dashboard Sections")
     st.markdown("""
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #00ff88; animation: pulse 2s infinite;"></span>
-            <span style="color: #94a3b8; font-size: 14px;">Operational</span>
-        </div>
-        <style>
-            @keyframes pulse {
-                0% { opacity: 1; }
-                50% { opacity: 0.5; }
-                100% { opacity: 1; }
-            }
-        </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Features List
-    st.markdown("### ⚙️ Features")
-    features = [
-        "📈 3-Day Forecast",
-        "📊 Gauge Visualization",
-        "📉 Trend Analysis",
-        "🏆 Model Performance",
-        "🔬 Feature Importance"
-    ]
-    for feature in features:
-        st.markdown(f"- {feature}")
-    
-    st.markdown("---")
-    
-    # Author Credit
+    - 📅 3-day AQI forecast
+    - 📈 Forecast trend & health advisory
+    - 🏆 Production model benchmark
+    - 📊 Global feature importance
+    - 🔍 SHAP prediction explainability
+    """)
+
+    st.markdown("<hr class='divider' style='margin:16px 0;'>", unsafe_allow_html=True)
+
+    if st.button("🔄 Refresh data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
     st.markdown("""
         <div class="sidebar-author">
             <div class="name">👨‍💻 Muhammad Aamir</div>
-            <div class="cohort">Cohort 9</div>
-            <div style="color: #64748b; font-size: 11px; margin-top: 4px;">10 Pearls Shine Intern</div>
+            <div class="cohort">10 Pearls Shine · Cohort 9</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -213,343 +307,320 @@ with st.sidebar:
 # ==========================================================
 
 st.markdown("""
-    <div style="text-align: center; padding: 20px 0 10px 0;">
-        <h1 style="font-size: 48px; margin: 0;">🌍 Karachi AQI Forecast</h1>
-        <p style="color: #94a3b8; font-size: 18px; margin: 5px 0;">
-            AI-Powered Multi-Horizon Air Quality Prediction
+    <div style="padding: 18px 0 6px 0;">
+        <h1 style="font-size: 44px; margin:0;">🌍 Karachi AQI Forecast</h1>
+        <p style="color:#8b93a7; font-size:17px; margin:6px 0 0 0;">
+            Multi-horizon air quality prediction with model transparency and SHAP explainability
         </p>
-        <p style="color: #64748b; font-size: 14px;">
-            By <strong style="color: #60a5fa;">Muhammad Aamir</strong> • Cohort 9
+        <p style="color:#5b6478; font-size:13.5px; margin-top:4px;">
+            Muhammad Aamir · 10 Pearls Shine Internship · Cohort 9
         </p>
     </div>
 """, unsafe_allow_html=True)
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
 # ==========================================================
-# BACKEND URLS
+# FETCH FORECAST (required — stop if unavailable)
 # ==========================================================
 
-BASE_URL = "https://aqi-predictor-karachi-production.up.railway.app"
-
-FORECAST_URL = f"{BASE_URL}/forecast"
-BEST_MODEL_URL = f"{BASE_URL}/models/best"
-FEATURE_URL = f"{BASE_URL}/features/importance?horizon=1"
-
-# ==========================================================
-# FETCH FORECAST
-# ==========================================================
-
-def fetch_data(url, timeout=30):
-    try:
-        response = requests.get(url, timeout=timeout)
-        response.raise_for_status()
-        return response.json()
-    except:
-        return None
-
-with st.spinner("🔄 Connecting to backend..."):
-    results = fetch_data(FORECAST_URL)
+with st.spinner("Connecting to inference backend..."):
+    results = fetch_json(FORECAST_URL)
 
 if results is None:
-    st.error("🚨 Backend unavailable. Please try again.")
+    st.error(
+        "🚨 **Backend unavailable.** The FastAPI inference service on Railway did not "
+        "respond. This can happen on cold start — please retry in a few seconds."
+    )
     if st.button("🔄 Retry Connection"):
+        st.cache_data.clear()
         st.rerun()
     st.stop()
 
-# ==========================================================
-# AQI CATEGORY
-# ==========================================================
-
-def aqi_category(value):
-    if value <= 50:
-        return "Good", "badge-good"
-    elif value <= 100:
-        return "Moderate", "badge-moderate"
-    elif value <= 150:
-        return "Unhealthy (Sensitive)", "badge-unhealthy"
-    elif value <= 200:
-        return "Unhealthy", "badge-unhealthy"
-    else:
-        return "Hazardous", "badge-hazardous"
+try:
+    forecast_dates = [results["1_day"]["date"], results["2_day"]["date"], results["3_day"]["date"]]
+    forecast_values = [results["1_day"]["value"], results["2_day"]["value"], results["3_day"]["value"]]
+except (KeyError, TypeError):
+    st.error("🚨 Forecast payload from the backend was in an unexpected format.")
+    st.json(results)
+    st.stop()
 
 # ==========================================================
-# GAUGE FUNCTION
+# FORECAST GAUGES
 # ==========================================================
 
-def create_gauge(value, date_label):
-    category, badge_class = aqi_category(value)
-    
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=value,
-        title={
-            'text': f"{date_label}<br><span class='{badge_class}'>{category}</span>",
-            'font': {'size': 16}
-        },
-        gauge={
-            'axis': {'range': [0, 300], 'tickwidth': 1, 'tickcolor': "white"},
-            'bar': {'color': "#00c3ff"},
-            'steps': [
-                {'range': [0, 50], 'color': "rgba(0, 255, 136, 0.2)"},
-                {'range': [50, 100], 'color': "rgba(255, 238, 0, 0.2)"},
-                {'range': [100, 150], 'color': "rgba(255, 153, 0, 0.2)"},
-                {'range': [150, 200], 'color': "rgba(255, 51, 51, 0.2)"},
-                {'range': [200, 300], 'color': "rgba(153, 0, 204, 0.2)"},
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': value
-            }
-        }
-    ))
+st.markdown("<span class='section-tag'>Forecast</span>", unsafe_allow_html=True)
+st.markdown("## 📅 3-Day AQI Outlook")
 
-    fig.update_layout(
-        height=320,
-        paper_bgcolor="#0e1117",
-        font_color="white",
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-# ==========================================================
-# FORECAST SECTION
-# ==========================================================
-
-st.markdown("## 📅 Multi-Day AQI Forecast")
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    with st.container():
+cols = st.columns(3)
+for i, col in enumerate(cols):
+    with col:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        create_gauge(results["1_day"]["value"],
-                     f"Day 1<br>{results['1_day']['date']}")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-with col2:
-    with st.container():
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        create_gauge(results["2_day"]["value"],
-                     f"Day 2<br>{results['2_day']['date']}")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-with col3:
-    with st.container():
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        create_gauge(results["3_day"]["value"],
-                     f"Day 3<br>{results['3_day']['date']}")
+        render_gauge(forecast_values[i], f"Day {i+1} · {forecast_dates[i]}")
         st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================================
 # TREND CHART
 # ==========================================================
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
-st.markdown("## 📈 Forecast Trend")
-
-forecast_dates = [
-    results["1_day"]["date"],
-    results["2_day"]["date"],
-    results["3_day"]["date"]
-]
-
-forecast_values = [
-    results["1_day"]["value"],
-    results["2_day"]["value"],
-    results["3_day"]["value"]
-]
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown("<span class='section-tag'>Trend</span>", unsafe_allow_html=True)
+st.markdown("## 📈 Forecast Trajectory")
 
 fig = go.Figure()
-
 fig.add_trace(go.Scatter(
-    x=forecast_dates,
-    y=forecast_values,
+    x=forecast_dates, y=forecast_values,
     mode='lines+markers',
-    line=dict(color="#00c3ff", width=4),
-    marker=dict(size=12, color="#00c3ff", symbol="circle"),
+    line=dict(color="#6dd3ff", width=4),
+    marker=dict(size=13, color="#6dd3ff", line=dict(color="#0a0e17", width=2)),
     name="AQI Forecast",
     fill='tozeroy',
-    fillcolor='rgba(0, 195, 255, 0.1)'
+    fillcolor='rgba(109, 211, 255, 0.08)',
 ))
-
-# Add horizontal lines for AQI categories
-fig.add_hline(y=50, line_dash="dash", line_color="#00ff88", opacity=0.5, annotation_text="Good")
-fig.add_hline(y=100, line_dash="dash", line_color="#ffee00", opacity=0.5, annotation_text="Moderate")
-fig.add_hline(y=150, line_dash="dash", line_color="#ff9900", opacity=0.5, annotation_text="Unhealthy")
-fig.add_hline(y=200, line_dash="dash", line_color="#ff3333", opacity=0.5, annotation_text="Hazardous")
+for lo, hi, label, color, _ in AQI_BANDS[:5]:
+    fig.add_hline(y=hi, line_dash="dot", line_color=color, opacity=0.45,
+                   annotation_text=label, annotation_font_color=color, annotation_font_size=11)
 
 fig.update_layout(
-    height=450,
-    template="plotly_dark",
-    xaxis_title="Date",
-    yaxis_title="AQI Value",
-    paper_bgcolor="#0e1117",
-    plot_bgcolor="rgba(255, 255, 255, 0.02)",
+    height=430,
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(255,255,255,0.015)",
+    font_color="#e8ecf3",
+    xaxis_title="Date", yaxis_title="AQI",
     hovermode="x unified",
-    legend=dict(
-        yanchor="top",
-        y=0.99,
-        xanchor="left",
-        x=0.01
-    )
+    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    xaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
+    yaxis=dict(gridcolor="rgba(255,255,255,0.05)"),
 )
+st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-st.plotly_chart(fig, use_container_width=True)
-
-# ==========================================================
-# HEALTH ADVISORY
-# ==========================================================
-
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
+# ---- Health advisory ----
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown("<span class='section-tag'>Advisory</span>", unsafe_allow_html=True)
 st.markdown("## 🚨 Health Advisory")
 
 max_aqi = max(forecast_values)
-category, _ = aqi_category(max_aqi)
+label, color, note = aqi_band(max_aqi)
 
-col1, col2 = st.columns([1, 2])
-
-with col1:
-    st.metric("Peak AQI Forecast", f"{max_aqi}", delta=f"{category}")
-
-with col2:
-    if max_aqi > 200:
-        st.error("🔴 **Hazardous** - Avoid all outdoor exposure. Stay indoors with air purifiers.")
-    elif max_aqi > 150:
-        st.warning("🟠 **Unhealthy** - Limit outdoor activity. Sensitive groups should stay indoors.")
-    elif max_aqi > 100:
-        st.info("🟡 **Moderate** - Sensitive groups should limit prolonged outdoor exposure.")
-    else:
-        st.success("🟢 **Good** - Air quality is satisfactory. Enjoy outdoor activities!")
+adv1, adv2 = st.columns([1, 2])
+with adv1:
+    st.markdown(f"""
+        <div class="metric-box">
+            <div class="metric-label">Peak AQI (3-day)</div>
+            <div class="metric-value" style="color:{color};">{max_aqi:.0f}</div>
+            <div style="margin-top:8px;"><span class='badge' style='background:{color}22;color:{color};border:1px solid {color}55;'>{label}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+with adv2:
+    st.markdown(f"""
+        <div class="card" style="border-left: 4px solid {color};">
+            <strong style="color:{color};">{label}</strong> — {note}
+        </div>
+    """, unsafe_allow_html=True)
 
 # ==========================================================
 # BEST PRODUCTION MODEL
 # ==========================================================
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
-st.markdown("## 🏆 Best Production Model")
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown("<span class='section-tag'>Model</span>", unsafe_allow_html=True)
+st.markdown("## 🏆 Production Model")
 
-best_model_data = fetch_data(BEST_MODEL_URL)
+best_model_data = fetch_json(BEST_MODEL_URL)
 
 if best_model_data and "model" in best_model_data:
     best_model = best_model_data["model"]
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown("""
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        st.markdown(f"""
             <div class="metric-box">
-                <div class="metric-label">Model Name</div>
-                <div style="font-size: 20px; font-weight: 600; color: #60a5fa;">{}</div>
-            </div>
-        """.format(best_model.get("model_name", "N/A")), unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
+                <div class="metric-label">Model</div>
+                <div style="font-size:19px; font-weight:700; color:#6dd3ff; margin-top:4px;">{best_model.get("model_name", "N/A")}</div>
+            </div>""", unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""
             <div class="metric-box">
                 <div class="metric-label">RMSE</div>
-                <div class="metric-value">{}</div>
-            </div>
-        """.format(round(best_model.get("rmse", 0), 2)), unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("""
+                <div class="metric-value">{round(best_model.get("rmse", 0), 2)}</div>
+            </div>""", unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""
             <div class="metric-box">
                 <div class="metric-label">R² Score</div>
-                <div class="metric-value">{}</div>
-            </div>
-        """.format(round(best_model.get("r2", 0), 3)), unsafe_allow_html=True)
-    
-    with col4:
+                <div class="metric-value">{round(best_model.get("r2", 0), 3)}</div>
+            </div>""", unsafe_allow_html=True)
+    with c4:
         r2 = best_model.get("r2", 0)
         if r2 > 0.8:
-            status = "✅ Strong"
-            color = "#00ff88"
+            status, scolor = "✅ Strong Fit", "#00e396"
         elif r2 > 0.6:
-            status = "⚠️ Moderate"
-            color = "#ff9900"
+            status, scolor = "⚠️ Moderate Fit", "#ffd54f"
         else:
-            status = "❌ Needs Improvement"
-            color = "#ff3333"
-        
-        st.markdown("""
+            status, scolor = "❌ Needs Work", "#ff6b6b"
+        st.markdown(f"""
             <div class="metric-box">
                 <div class="metric-label">Performance</div>
-                <div style="font-size: 20px; font-weight: 600; color: {};">{}</div>
-            </div>
-        """.format(color, status), unsafe_allow_html=True)
-
+                <div style="font-size:18px; font-weight:700; color:{scolor}; margin-top:4px;">{status}</div>
+            </div>""", unsafe_allow_html=True)
 else:
-    st.warning("⚠️ Best model details unavailable.")
+    st.warning("⚠️ Best model details unavailable from the registry.")
+
+# ---- Model benchmark across horizons (from README-documented metrics endpoint) ----
+metrics_data = fetch_json(METRICS_URL)
+if metrics_data:
+    rows = metrics_data.get("models") or metrics_data.get("metrics") or (metrics_data if isinstance(metrics_data, list) else None)
+    if rows:
+        with st.expander("📋 View full model benchmark across horizons"):
+            df_metrics = pd.DataFrame(rows)
+            st.dataframe(df_metrics, use_container_width=True, hide_index=True)
 
 # ==========================================================
 # FEATURE IMPORTANCE
 # ==========================================================
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
-st.markdown("## 📊 Top Feature Importance")
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown("<span class='section-tag'>Interpretability</span>", unsafe_allow_html=True)
+st.markdown("## 📊 Global Feature Importance")
+st.caption("Which features the production model relies on most, aggregated across all predictions (e.g. Gini / permutation importance).")
 
-feature_data = fetch_data(FEATURE_URL)
+feature_data = fetch_json(FEATURE_URL)
 
 if feature_data and "features" in feature_data:
-    df = pd.DataFrame(feature_data["features"])
-    df = df.sort_values("importance", ascending=False).head(10)
+    df_feat = pd.DataFrame(feature_data["features"])
+    df_feat = df_feat.sort_values("importance", ascending=False).head(12)
 
-    fig = go.Figure()
+    colors = ["#6dd3ff" if i < 3 else "#4f8fd4" if i < 6 else "#5b6478" for i in range(len(df_feat))]
 
-    # Use gradient colors
-    colors = ['#00c3ff' if i < 3 else '#60a5fa' if i < 6 else '#94a3b8' for i in range(len(df))]
-    
-    fig.add_trace(go.Bar(
-        x=df["importance"],
-        y=df["feature"],
-        orientation="h",
-        marker_color=colors,
-        text=df["importance"].round(3),
-        textposition="outside",
-        textfont=dict(color="white")
+    fig_imp = go.Figure(go.Bar(
+        x=df_feat["importance"], y=df_feat["feature"],
+        orientation="h", marker_color=colors,
+        text=df_feat["importance"].round(3), textposition="outside",
+        textfont=dict(color="#c3c9d6"),
     ))
+    fig_imp.update_layout(
+        height=460,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.015)",
+        font_color="#e8ecf3",
+        yaxis=dict(autorange="reversed", title=None, gridcolor="rgba(255,255,255,0.05)"),
+        xaxis=dict(title="Importance Score", gridcolor="rgba(255,255,255,0.05)"),
+        margin=dict(l=10, r=40, t=20, b=20),
+    )
+    st.plotly_chart(fig_imp, use_container_width=True, config={"displayModeBar": False})
 
-    fig.update_layout(
-        title="Top 10 Features Affecting AQI",
-        template="plotly_dark",
-        height=500,
-        yaxis=dict(autorange="reversed", title="Feature"),
-        xaxis=dict(title="Importance Score"),
-        paper_bgcolor="#0e1117",
-        plot_bgcolor="rgba(255, 255, 255, 0.02)",
-        margin=dict(l=20, r=20, t=50, b=20)
+    top3 = ", ".join(df_feat["feature"].head(3).tolist())
+    st.info(f"📌 **Insight:** The strongest predictors are **{top3}** — consistent with lag and rolling-window features carrying most of the temporal signal, as noted in the EDA.")
+else:
+    st.warning("⚠️ Feature importance unavailable from the backend.")
+
+# ==========================================================
+# SHAP EXPLAINABILITY
+# ==========================================================
+
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown("<span class='section-tag'>Explainability</span>", unsafe_allow_html=True)
+st.markdown("## 🔍 SHAP: Why This Prediction?")
+st.caption(
+    "SHAP (SHapley Additive exPlanations) breaks the current 1-day forecast down into "
+    "per-feature contributions — showing exactly how much each input pushed the prediction "
+    "above or below the model's baseline (average) output."
+)
+
+shap_raw = fetch_json(SHAP_URL)
+df_shap, base_value = normalize_shap_response(shap_raw)
+
+if df_shap is not None and not df_shap.empty:
+    df_shap["abs_val"] = df_shap["shap_value"].abs()
+    df_shap = df_shap.sort_values("abs_val", ascending=True).tail(12)
+
+    bar_colors = ["#ff6b6b" if v > 0 else "#43e6a0" for v in df_shap["shap_value"]]
+
+    fig_shap = go.Figure(go.Bar(
+        x=df_shap["shap_value"], y=df_shap["feature"],
+        orientation="h", marker_color=bar_colors,
+        text=df_shap["shap_value"].round(3), textposition="outside",
+        textfont=dict(color="#c3c9d6"),
+    ))
+    fig_shap.add_vline(x=0, line_color="rgba(255,255,255,0.25)", line_width=1)
+    fig_shap.update_layout(
+        height=460,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.015)",
+        font_color="#e8ecf3",
+        yaxis=dict(title=None, gridcolor="rgba(255,255,255,0.05)"),
+        xaxis=dict(title="SHAP value (impact on predicted AQI)", gridcolor="rgba(255,255,255,0.05)"),
+        margin=dict(l=10, r=40, t=20, b=20),
+        title=dict(text=f"Base value: {round(float(base_value), 2) if base_value else 'N/A'}  →  Predicted AQI: {forecast_values[0]:.0f}",
+                    font=dict(size=13, color="#8b93a7")),
+    )
+    st.plotly_chart(fig_shap, use_container_width=True, config={"displayModeBar": False})
+
+    top_pos = df_shap.sort_values("shap_value", ascending=False).head(1)
+    top_neg = df_shap.sort_values("shap_value", ascending=True).head(1)
+    leg1, leg2 = st.columns(2)
+    with leg1:
+        if not top_pos.empty and top_pos["shap_value"].iloc[0] > 0:
+            st.markdown(f"<span class='shap-pos'>▲ {top_pos['feature'].iloc[0]}</span> pushed AQI **up** the most (+{top_pos['shap_value'].iloc[0]:.2f})", unsafe_allow_html=True)
+    with leg2:
+        if not top_neg.empty and top_neg["shap_value"].iloc[0] < 0:
+            st.markdown(f"<span class='shap-neg'>▼ {top_neg['feature'].iloc[0]}</span> pushed AQI **down** the most ({top_neg['shap_value'].iloc[0]:.2f})", unsafe_allow_html=True)
+
+    with st.expander("📄 Raw SHAP contribution table"):
+        st.dataframe(
+            df_shap[["feature", "shap_value"] + (["feature_value"] if "feature_value" in df_shap.columns else [])]
+            .sort_values("shap_value", ascending=False),
+            use_container_width=True, hide_index=True,
+        )
+else:
+    st.warning(
+        "⚠️ SHAP explanation is currently unavailable from `/forecast/shap`. "
+        "The panel will populate automatically once the endpoint returns data — "
+        "falling back to global feature importance above in the meantime."
     )
 
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Add explanation
-    st.info("📌 **Insight:** Features with higher importance scores have greater influence on AQI predictions. Lag features and weather variables are typically the strongest predictors.")
+# ==========================================================
+# METHODOLOGY / ABOUT
+# ==========================================================
 
-else:
-    st.warning("⚠️ Feature importance unavailable.")
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown("<span class='section-tag'>About</span>", unsafe_allow_html=True)
+st.markdown("## 🧠 How This System Works")
+
+m1, m2, m3 = st.columns(3)
+with m1:
+    st.markdown("""
+        <div class="card">
+            <h4>📥 Data</h4>
+            <p style="font-size:14px;">5 months of historical AQI + live weather data (Open-Meteo), aligned hourly and stored in a MongoDB feature store.</p>
+        </div>
+    """, unsafe_allow_html=True)
+with m2:
+    st.markdown("""
+        <div class="card">
+            <h4>🛠️ Features</h4>
+            <p style="font-size:14px;">Lag features (t-1, t-3, t-6, t-24, t-48), rolling mean/std, hour-of-day and day-of-week encodings, and weather interactions.</p>
+        </div>
+    """, unsafe_allow_html=True)
+with m3:
+    st.markdown("""
+        <div class="card">
+            <h4>🤖 Modeling</h4>
+            <p style="font-size:14px;">Independent models per horizon (24h / 48h / 72h) — Random Forest, Gradient Boosting, Ridge — best model selected by RMSE/R² and served via FastAPI.</p>
+        </div>
+    """, unsafe_allow_html=True)
 
 # ==========================================================
 # FOOTER
 # ==========================================================
 
-st.markdown("<hr class='custom-divider'>", unsafe_allow_html=True)
-
-st.markdown("""
+st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+st.markdown(f"""
     <div class="footer">
-        <p style="font-size: 16px;">
-            🌍 <strong>Karachi AQI Forecast System</strong>
-        </p>
-        <p>
-            Built with ❤️ by <strong style="color: #60a5fa;">Muhammad Aamir</strong> • Cohort 9
-        </p>
-        <p style="font-size: 13px; color: #475569;">
-            🚀 10 Pearls Shine Intern | AI-Powered MLOps Pipeline
-        </p>
-        <p style="font-size: 12px; color: #334155; margin-top: 10px;">
-            © 2024 All Rights Reserved
+        <p style="font-size:15px;">🌍 <strong>Karachi AQI Forecast System</strong></p>
+        <p>Built by <a href="https://www.linkedin.com/in/moaamir28/" target="_blank">Muhammad Aamir</a> ·
+           10 Pearls Shine Internship, Cohort 9 ·
+           <a href="https://github.com/LiLAlien28/aqi-predictor-karachi" target="_blank">Source on GitHub</a></p>
+        <p style="font-size:12px; color:#3d4457; margin-top:8px;">
+            Last refreshed {datetime.now().strftime('%Y-%m-%d %H:%M')} · © 2026
         </p>
     </div>
 """, unsafe_allow_html=True)
